@@ -1,107 +1,60 @@
-"""Core rule engine for validating AI agent payloads."""
-
-from __future__ import annotations
-
+import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Dict, Any, List, Optional, Union
 
-
-@dataclass(frozen=True)
-class EvaluationResult:
-    """Immutable result returned by :meth:`RuleEngine.evaluate`."""
-
+@dataclass
+class Decision:
     status: str  # "ALLOW" or "BLOCKED"
     reason: str
-
-    @property
-    def allowed(self) -> bool:
-        return self.status == "ALLOW"
-
-    @property
-    def blocked(self) -> bool:
-        return self.status == "BLOCKED"
-
+    payload: Optional[Dict[str, Any]] = None
 
 class RuleEngine:
-    """Deterministic rule engine that validates a JSON payload against constraints.
-
-    Parameters
-    ----------
-    max_amount:
-        If set, any payload whose ``amount`` field exceeds this value is blocked.
-    blocked_actions:
-        A collection of action names that must never be executed.
-    required_fields:
-        Field names that *must* be present in every payload.
-    custom_rules:
-        An optional list of callables ``(payload: dict) -> str | None``.
-        Each callable should return a non-empty reason string when the payload
-        should be blocked, or ``None`` / an empty string to allow it.
-    """
-
     def __init__(
-        self,
-        *,
-        max_amount: float | None = None,
-        blocked_actions: list[str] | None = None,
-        required_fields: list[str] | None = None,
-        custom_rules: list[Any] | None = None,
-    ) -> None:
+        self, 
+        max_amount: Optional[float] = None, 
+        blocked_actions: Optional[List[str]] = None,
+        require_human_approval: Optional[List[str]] = None
+    ):
         self.max_amount = max_amount
-        self.blocked_actions: frozenset[str] = frozenset(blocked_actions or [])
-        self.required_fields: list[str] = list(required_fields or [])
-        self.custom_rules: list[Any] = list(custom_rules or [])
+        self.blocked_actions = set(blocked_actions or [])
+        self.require_human_approval = set(require_human_approval or [])
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def evaluate(self, payload: dict) -> EvaluationResult:
-        """Evaluate *payload* against all configured constraints.
-
-        Returns an :class:`EvaluationResult` with ``status="ALLOW"`` when the
-        payload passes every rule, or ``status="BLOCKED"`` with a human-readable
-        ``reason`` on the first failing rule.
-        """
-        if not isinstance(payload, dict):
-            return self._block("Payload must be a JSON object (dict).")
-
-        # 1. Required fields check
-        for field in self.required_fields:
-            if field not in payload:
-                return self._block(f"Missing required field: '{field}'.")
-
-        # 2. Blocked actions check
-        action = payload.get("action")
-        if action is not None and action in self.blocked_actions:
-            return self._block(f"Action '{action}' is explicitly blocked.")
-
-        # 3. Amount ceiling check
-        amount = payload.get("amount")
-        if amount is not None and self.max_amount is not None:
+    def evaluate(self, raw_input: Union[str, Dict[str, Any]]) -> Decision:
+        # 1. Safely parse payload (Agents often return raw strings)
+        if isinstance(raw_input, str):
             try:
-                if float(amount) > self.max_amount:
-                    return self._block(
-                        f"Amount {amount} exceeds the maximum allowed value of"
-                        f" {self.max_amount}."
-                    )
-            except (TypeError, ValueError):
-                return self._block(
-                    f"Amount field contains a non-numeric value: {amount!r}."
-                )
+                payload = json.loads(raw_input)
+            except json.JSONDecodeError:
+                return Decision("BLOCKED", "Fatal: LLM output is not valid JSON.")
+        else:
+            payload = raw_input
 
-        # 4. Custom rules
-        for rule in self.custom_rules:
-            reason = rule(payload)
-            if reason:
-                return self._block(reason)
+        if not isinstance(payload, dict):
+            return Decision("BLOCKED", "Fatal: Payload must be a JSON object.")
 
-        return EvaluationResult(status="ALLOW", reason="All rules passed.")
+        # 2. Extract core intent
+        action = payload.get("action")
+        if not action:
+            return Decision("BLOCKED", "Missing required field: 'action'.")
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
+        # 3. Enforce Blacklist
+        if action in self.blocked_actions:
+            return Decision("BLOCKED", f"Action '{action}' is strictly prohibited.")
 
-    @staticmethod
-    def _block(reason: str) -> EvaluationResult:
-        return EvaluationResult(status="BLOCKED", reason=reason)
+        if action in self.require_human_approval:
+            return Decision("BLOCKED", f"Action '{action}' requires human-in-the-loop approval.")
+
+        # 4. Enforce Financial Limits
+        amount = payload.get("amount")
+        if amount is not None:
+            # Agents hallucinate strings for numbers. We catch that.
+            if not isinstance(amount, (int, float)):
+                try:
+                    amount = float(amount)
+                except ValueError:
+                    return Decision("BLOCKED", "Amount must be a numeric value.")
+            
+            if self.max_amount is not None and amount > self.max_amount:
+                return Decision("BLOCKED", f"Amount {amount} exceeds hard limit of {self.max_amount}.")
+
+        return Decision("ALLOW", "Passed all deterministic checks.", payload)

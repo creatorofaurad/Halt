@@ -20,10 +20,13 @@ Zero AI. Zero machine learning. Pure deterministic logic. **It catches the bulle
 
 ```bash
 pip install halt-ai
-The 3-Line Integration
+```
+
+### The 3-Line Integration
+
 Stop writing custom validators. Define your policy once, wrap your LLM output, and ship your agent safely.
 
-Python
+```python
 from halt import RuleEngine
 from halt.templates import StripeHalt
 
@@ -47,23 +50,22 @@ decision = payment_policy.evaluate(llm_output)
 if decision.status == "BLOCKED":
     print(f"Execution Halted: {decision.reason}")
     # Trigger LLM self-correction by feeding the reason back to the prompt
-Out-of-the-Box Threat Templates
-You do not have to map every API vulnerability yourself. halt ships with battle-tested schemas for the most dangerous integrations.
+```
 
-StripeHalt: Automatically blocks high-value refunds, customer deletion, and bulk subscription cancellations.
+### Out-of-the-Box Threat Templates
 
-SQLHalt: Intercepts payload strings and strictly rejects DROP, DELETE WITHOUT WHERE, and unauthorized table mutations.
+You do not have to map every API vulnerability yourself. `halt` ships with battle-tested schemas for the most dangerous integrations.
 
-MailHalt: Prevents rapid-fire email loops, restricts sending domains, and flags restricted keywords in draft bodies.
+* **`StripeHalt`:** Automatically blocks high-value refunds, customer deletion, and bulk subscription cancellations.
+* **`SQLHalt`:** Intercepts payload strings and strictly rejects `DROP`, `DELETE WITHOUT WHERE`, and unauthorized table mutations.
+* **`MailHalt`:** Prevents rapid-fire email loops, restricts sending domains, and flags restricted keywords in draft bodies.
+* **`ShellHalt`:** Safely sandboxes LLM terminal execution, blocking `rm -rf`, outbound network calls, and unauthorized directory traversal.
 
-ShellHalt: Safely sandboxes LLM terminal execution, blocking rm -rf, outbound network calls, and unauthorized directory traversal.
+### Why use `halt`?
 
-Why use halt?
-Zero Dependencies: It will not bloat your project.
+1. **Zero Dependencies:** It will not bloat your project.
+2. **Microsecond Latency:** Evaluates payloads in `~0.01s`. It will not slow down your agent's execution loop.
+3. **Type-Coercion Safe:** AI agents often hallucinate data types (e.g., sending an amount as the string `"50"` instead of the integer `50`). `halt` automatically catches and sanitizes these anomalies before they crash your app.
 
-Microsecond Latency: Evaluates payloads in ~0.01s. It will not slow down your agent's execution loop.
-
-Type-Coercion Safe: AI agents often hallucinate data types (e.g., sending an amount as the string "50" instead of the integer 50). halt automatically catches and sanitizes these anomalies before they crash your app.
-
-License
+### License
 MIT License. Free for solo developers, indie hackers, and open-source projects.
